@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Pytes E-BOX 48100-R to MQTT configuration</title></title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+  <div class="topnav">
+    <h1>Pytes E-BOX 48100-R to MQTT configuration</h1>
+  </div>
+  <div class="content">
+    <div class="card-grid">
+      <div class="card">
+        <form action="/" method="POST">
+          <div class="form">
+            <label for="ssid">SSID</label>
+            <input type="text" id ="ssid" name="ssid" value="%SSID%"><br>
+            <label for="password">Password</label>
+            <input type="password" id ="password" name="password" value="%PASSWORD%"><br>
+            <br/>
+            <label for="mqttip">MQTT IP</label>
+            <input type="text" id ="mqttip" name="mqttip" value="%MQTTIP%"><br>
+            <label for="mqttuser">MQTT User</label>
+            <input type="text" id ="mqttuser" name="mqttuser" value="%MQTTUSER%"><br>
+            <label for="mqttpassword">MQTT Password</label>
+            <input type="password" id ="mqttpassword" name="mqttpassword" value="%MQTTPASSWORD%"><br>
+            <br/>
+            <label for="rackcount">E-BOX Racks</label>
+            <input type="number" id ="rackcount" name="rackcount" value="%RACKCOUNT%"><br>
+            <br/>            
+            <label for="ip">DHCP</label>
+            <input type="checkbox" id ="dhcp" name="dhcp" %DHCP%><br>
+
+            <div class="hidden-content">
+                <label for="ip">IP Address</label>
+                <input type="text" id ="ip" name="ip" value="%IP%"><br>
+                <label for="ip">Subnet</label>
+                <input type="text" id ="subnet" name="subnet" value="%SUBNET%"><br>            
+                <label for="ip">DNS 1</label>
+                <input type="text" id ="dns1" name="dns1" value="%DNS1%"><br>            
+                <label for="ip">DNS 2</label>
+                <input type="text" id ="dns2" name="dns2" value="%DNS2%"><br>            
+                <label for="gateway">Gateway Address</label>
+                <input type="text" id ="gateway" name="gateway" value="%GATEWAY%"><br>
+            </div>
+            <div class="submit"><input type ="submit" value ="Submit"></div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
