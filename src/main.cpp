@@ -33,6 +33,7 @@ String dhcp;
 String mqttIp;
 String mqttUser;
 String mqttPassword;
+String telnetPassword;
 String rackCount;
 
 // File paths to save input values permanently
@@ -47,6 +48,7 @@ const char *dhcpPath = "/dhcp.txt";
 const char *mqttIpPath = "/mqttIp.txt";
 const char *mqttUserPath = "/mqttUser.txt";
 const char *mqttPasswordPath = "/mqttPassword.txt";
+const char *telnetPasswordPath = "/telnetPassword.txt";
 const char *rackCountPath = "/rackCount.txt";
 
 IPAddress localIP;
@@ -77,9 +79,6 @@ IPAddress mqttServer(172, 16, 17, 42);
 
 #define RXD2 16
 #define TXD2 17
-
-// reading buffer size
-#define BUFFER_SIZE 8192
 
 /************************************************************
  *
@@ -130,12 +129,12 @@ const TABLE_COLUMN_DEFINITION batCmd[] = {
  ************************************************************/
 
 WiFiClient WifiClient;
-static std::vector<AsyncClient *> telnetClients;         // a list to hold all telnetClients
-
 AsyncWebServer httpServer(80);
 DNSServer dnsServer;
 WiFiServer wifiServer;
 PubSubClient mqttClient(mqttServer, 1883, WifiClient);
+
+
 
 /************************************************************
  *
@@ -153,8 +152,11 @@ int commandLogging = 0;
 int valueLogging = 0;
 int discoveryLogging = 0;
 int discoveryCounter = 3;
-
+bool telnetLoginNeeded = false; 
 bool captivePortalMode = false;
+static std::vector<AsyncClient *> telnetClients;         // a list to hold all telnetClients
+String telnetBuffer;
+
 
 /************************************************************
  *
@@ -171,7 +173,19 @@ void debug(const char *m)
   {
     if (client->space() > count && client->canSend())
     {
+      int hasLineEnd = false;
+
+      if(m[count-1] == '\n') {
+        hasLineEnd = true;
+        count--;
+      }
+      
       client->add(m, count);
+
+      if(hasLineEnd) {
+        client->add("\r\n", 2);
+      }
+
       client->send();
     }
   }
@@ -220,6 +234,28 @@ size_t debugPrintf(const char *format, ...)
     delete[] buffer;
   }
   return len;
+}
+
+/************************************************************
+ *
+ * Telnet types and vector helper handling
+ *
+ ************************************************************/
+
+void erase(std::vector<AsyncClient *> &v, AsyncClient *key)
+{
+    for (auto it = v.begin(); it != v.end();)
+    {
+        AsyncClient *telnetClient = *it;
+        if (telnetClient == key) {
+            it = v.erase(it);
+            delete telnetClient;
+            return;
+        }
+        else {
+            ++it;
+        }
+    }
 }
 
 /************************************************************
@@ -279,38 +315,75 @@ void writeFile(fs::FS &fs, const char *path, const char *message)
 
 /************************************************************
  *
+ * config
+ *
+ ************************************************************/
+
+void readConfig()
+{
+  // Load values saved in SPIFFS
+  dhcp = readFile(SPIFFS, dhcpPath);
+  ssid = readFile(SPIFFS, ssidPath);
+  password = readFile(SPIFFS, passwordPath);
+  ip = readFile(SPIFFS, ipPath);
+  subnet = readFile(SPIFFS, subnetPath);
+  dns1 = readFile(SPIFFS, dns1Path);
+  dns2 = readFile(SPIFFS, dns2Path);
+  gateway = readFile(SPIFFS, gatewayPath);
+  mqttIp = readFile(SPIFFS, mqttIpPath);
+  mqttUser = readFile(SPIFFS, mqttUserPath);
+  mqttPassword = readFile(SPIFFS, mqttPasswordPath);
+  telnetPassword = readFile(SPIFFS, telnetPasswordPath);
+  rackCount = readFile(SPIFFS, rackCountPath);
+
+  Serial.printf("ssid          : '%s'\n", ssid.c_str());
+  Serial.printf("password      : '%s'\n", password.c_str());
+  Serial.printf("mqttUser      : '%s'\n", mqttUser.c_str());
+  Serial.printf("mqttIp        : '%s'\n", mqttIp.c_str());
+  Serial.printf("mqttPassword  : '%s'\n", mqttPassword.c_str());
+  Serial.printf("telnetPassword: '%s'\n", telnetPassword.c_str());
+  Serial.printf("rackCount     : '%s'\n", rackCount.c_str());
+  Serial.printf("dhcp          : '%s'\n", dhcp.c_str());
+  Serial.printf("ip            : '%s'\n", ip.c_str());
+  Serial.printf("subnet        : '%s'\n", subnet.c_str());
+  Serial.printf("dns1          : '%s'\n", dns1.c_str());
+  Serial.printf("dns2          : '%s'\n", dns2.c_str());
+  Serial.printf("gateway       : '%s'\n", gateway.c_str());
+
+  if (telnetPassword.length() > 0) {
+    telnetLoginNeeded = true;
+  }
+}
+
+
+/************************************************************
+ *
  * Console handling
  *
  ************************************************************/
 
-int handleCommand(uint8_t *data, size_t len)
+int handleCommand(String line)
 {
-  String d = "";
-  for (int i = 0; i < len; i++)
-  {
-    d += char(data[i]);
-  }
-  d.trim();
-
-  if (d.startsWith(".discovery"))
+  // check commands
+  if (line.startsWith(".discovery"))
   {
     discoveryCounter = 3;
     debugLn("discovery enabled");
     return 0;
   }
-  else if (d.startsWith(".start"))
+  else if (line.startsWith(".start"))
   {
     startDataCollection = 1;
     debugLn("data collection started");
     return 0;
   }
-  else if (d.startsWith(".stop"))
+  else if (line.startsWith(".stop"))
   {
     startDataCollection = 0;
     debugLn("data collection stopped");
     return 0;
   }
-  else if (d.startsWith(".restart"))
+  else if (line.startsWith(".restart"))
   {
     debugLn("restarting...");
     delay(1000);
@@ -322,35 +395,35 @@ int handleCommand(uint8_t *data, size_t len)
     ESP.restart();
     return 0;
   }
-  else if (d.startsWith(".ll"))
+  else if (line.startsWith(".ll"))
   {
     lineLogging ^= 1;
     debugPrintf("line logging %s\n", (lineLogging ? "enabled" : "disabled"));
     return 0;
   }
-  else if (d.startsWith(".lc"))
+  else if (line.startsWith(".lc"))
   {
     commandLogging ^= 1;
     debugPrintf("command logging %s\n", (commandLogging ? "enabled" : "disabled"));
     return 0;
   }
-  else if (d.startsWith(".lv"))
+  else if (line.startsWith(".lv"))
   {
     valueLogging ^= 1;
     debugPrintf("value logging %s\n", (valueLogging ? "enabled" : "disabled"));
     return 0;
   }
-  else if (d.startsWith(".ld"))
+  else if (line.startsWith(".ld"))
   {
     discoveryLogging ^= 1;
     debugPrintf("discovery logging %s\n", (discoveryLogging ? "enabled" : "disabled"));
     return 0;
   }
-  else if (d.startsWith("."))
+  else if (line.startsWith("."))
   {
-    if (d.length() > 1)
+    if (line.length() > 1)
     {
-      debugPrintf("unknown command '%s'\n", d.c_str());
+      debugPrintf("unknown command '%s'\n", line.c_str());
       debugLn("");
     }
     debugLn("known commands:");
@@ -397,6 +470,7 @@ String httpStateProcessing(void)
   result.replace("%MQTTIP%", mqttIp);
   result.replace("%MQTTUSER%", mqttUser);
   result.replace("%MQTTPASSWORD%", mqttPassword);
+  result.replace("%TELNETPASSWORD%", telnetPassword);
   result.replace("%RACKCOUNT%", rackCount);
 
   return result;
@@ -535,6 +609,15 @@ void handleConfigPost(AsyncWebServerRequest *request)
         // Write file to save value
         writeFile(SPIFFS, mqttPasswordPath, mqttPassword.c_str());
       }
+      // HTTP POST telnetPassword value
+      if (p->name() == "telnetpassword")
+      {
+        telnetPassword = p->value().c_str();
+        Serial.print("Telnet Password set to: ");
+        Serial.println(telnetPassword);
+        // Write file to save value
+        writeFile(SPIFFS, telnetPasswordPath, telnetPassword.c_str());
+      }
       // HTTP POST rackCount value
       if (p->name() == "rackcount")
       {
@@ -634,33 +717,6 @@ bool initWiFi()
 
 void enableWiFi()
 {
-  // Load values saved in SPIFFS
-  dhcp = readFile(SPIFFS, dhcpPath);
-  ssid = readFile(SPIFFS, ssidPath);
-  password = readFile(SPIFFS, passwordPath);
-  ip = readFile(SPIFFS, ipPath);
-  subnet = readFile(SPIFFS, subnetPath);
-  dns1 = readFile(SPIFFS, dns1Path);
-  dns2 = readFile(SPIFFS, dns2Path);
-  gateway = readFile(SPIFFS, gatewayPath);
-  mqttIp = readFile(SPIFFS, mqttIpPath);
-  mqttUser = readFile(SPIFFS, mqttUserPath);
-  mqttPassword = readFile(SPIFFS, mqttPasswordPath);
-  rackCount = readFile(SPIFFS, rackCountPath);
-
-  Serial.printf("ssid        : '%s'\n", ssid.c_str());
-  Serial.printf("password    : '%s'\n", password.c_str());
-  Serial.printf("mqttUser    : '%s'\n", mqttUser.c_str());
-  Serial.printf("mqttIp      : '%s'\n", mqttIp.c_str());
-  Serial.printf("mqttPassword: '%s'\n", mqttPassword.c_str());
-  Serial.printf("rackCount   : '%s'\n", rackCount.c_str());
-  Serial.printf("dhcp        : '%s'\n", dhcp.c_str());
-  Serial.printf("ip          : '%s'\n", ip.c_str());
-  Serial.printf("subnet      : '%s'\n", subnet.c_str());
-  Serial.printf("dns1        : '%s'\n", dns1.c_str());
-  Serial.printf("dns2        : '%s'\n", dns2.c_str());
-  Serial.printf("gateway     : '%s'\n", gateway.c_str());
-
   if (!initWiFi())
   {
     // cleanup
@@ -730,36 +786,189 @@ void reconnect()
  * Telnet stuff
  *
  ************************************************************/
+void debugPrintTelnetProtocolLine(String direction, String line) {
+  Serial.print(line.length());
+  Serial.print(" " + direction + " ");
+
+  for(int i=0; i<3; i++) {
+    Serial.printf("%02.2X ", line[i]);
+  }
+
+  if (line.length()>=2) {
+    uint8_t c = line[1];
+    switch(c) 
+    {
+    case 0xfb:
+      Serial.print("Will ");
+      break;
+    case 0xfc:
+      Serial.print("WON'T ");
+      break;
+    case 0xfd:
+      Serial.print("DO ");
+      break;
+    case 0xfe:
+      Serial.print("DON'T ");
+      break;
+    case 0xff:
+      Serial.print("CMD ");
+      break;
+    }
+  }
+  if (line.length()>=3) {
+    uint8_t c = line[2];
+    switch(c) 
+    {
+    case 0:
+      Serial.print("TRANSMIT-BINARY");
+      break;
+    case 1:
+      Serial.print("ECHO");
+      break;
+    case 3:
+      Serial.print("SUPPRESS-GO-AHEAD");
+      break;
+    case 5:
+      Serial.print("STATUS");
+      break;
+    case 6:
+      Serial.print("TIMING-MARK");
+      break;
+    case 10:
+      Serial.print("NAOCRD");
+      break;
+    case 11:
+      Serial.print("NAOHTS");
+      break;
+    case 12:
+      Serial.print("NAOHTD");
+      break;
+    case 13:
+      Serial.print("NAOFFD");
+      break;
+    case 14:
+      Serial.print("NAOVTS");
+      break;
+    case 15:
+      Serial.print("NAOVTD");
+      break;
+    case 16:
+      Serial.print("NAOLFD");
+      break;
+    case 17:
+      Serial.print("EXTEND-ASCII");
+      break;
+    case 24:
+      Serial.print("TERMINAL-TYPE");
+      break;
+    case 31:
+      Serial.print("NAWS");
+      break;
+    case 32:
+      Serial.print("TERMINAL-SPEED");
+      break;
+    case 33:
+      Serial.print("TOGGLE-FLOW-CONTROL");
+      break;
+    case 34:
+      Serial.print("LINEMODE");
+      break;
+    case 37:
+      Serial.print("AUTHENTICATION");
+      break;
+    }
+  }
+  Serial.println("");;
+}
+
+void handleTelnetProtocol(AsyncClient *client, String line) {
+  //debugPrintf("telnet protocol from client %s %d [%02.2X %02.2X %02.2X]\n", client->remoteIP().toString().c_str(), line.length(), line[0], line[1], line[3]);
+  debugPrintTelnetProtocolLine("R", line);
+}
+
+void handleTelnetLine(AsyncClient *client, String line)
+{
+  //debugPrintf("line from client %s '%s'\n", client->remoteIP().toString().c_str(), line.c_str());
+
+  // password handling
+  if (telnetLoginNeeded) {
+    if (line == telnetPassword) {
+      telnetLoginNeeded = false;
+      //debugPrintTelnetProtocolLine(String("S"),String("\xFF\xFD\x01"));
+      //client->write("\xFF\xFD\x01\r\n");
+      client->write("access granted\r\n");
+    } else {
+      //debugPrintTelnetProtocolLine(String("S"),String("\xFF\xFD\x01"));
+      //client->write("\xFF\xFE\x01\r\n");
+      client->write("\nenter password: ");
+    }
+    return;
+  }
+
+  // command handling
+  if (handleCommand(line))
+  {
+    Serial2.write(line.c_str());
+    Serial2.write("\r\n");
+    Serial2.flush();
+  }
+}
 
 static void handleTelnetError(void *arg, AsyncClient *client, int8_t error)
 {
   debugPrintf("connection error %s from client %s\n", client->errorToString(error), client->remoteIP().toString().c_str());
 }
 
+
 static void handleTelnetData(void *arg, AsyncClient *client, void *data, size_t len)
 {
-  // debugPrintf("data received from client %s \n", client->remoteIP().toString().c_str());
-  if (handleCommand((uint8_t *)data, len))
+  //debugPrintf("data received from client %s %d (%p,%p)\n", client->remoteIP().toString().c_str(), len, arg, client);
+
+  uint8_t *input = (uint8_t *) data;
+  for (int i = 0; i < len; i++)
   {
-    Serial2.write((uint8_t *)data, len);
-    Serial2.flush();
+    telnetBuffer += char(input[i]&0xff);
+  }
+
+  int lineFeedIndex = telnetBuffer.indexOf("\n");
+  while(lineFeedIndex>0) {
+    String line = telnetBuffer.substring(0,lineFeedIndex);
+    line.replace("\r","");
+
+    while (line.startsWith("\xFF")) {
+      handleTelnetProtocol(client, line);
+      line = line.substring(3);
+    } 
+    
+    handleTelnetLine(client, line);
+
+    telnetBuffer = telnetBuffer.substring(lineFeedIndex+1);
+    lineFeedIndex = telnetBuffer.indexOf("\n")+1;
   }
 }
 
 static void handleTelnetDisconnect(void *arg, AsyncClient *client)
 {
   debugPrintf("client %s disconnected\n", client->remoteIP().toString().c_str());
+  erase(telnetClients, client);
+  if (telnetPassword.length() > 0) {
+    telnetLoginNeeded = true;
+  }
 }
 
 static void handleTelnetTimeOut(void *arg, AsyncClient *client, uint32_t time)
 {
   debugPrintf("client ACK timeout ip: %s\n", client->remoteIP().toString().c_str());
+  erase(telnetClients, client);  
+  if (telnetPassword.length() > 0) {
+    telnetLoginNeeded = true;
+  }
 }
 
 /* server events */
 static void handleNewTelnetClient(void *arg, AsyncClient *client)
 {
-  debugPrintf("new client has been connected to server, ip: %s\n", client->remoteIP().toString().c_str());
+  debugPrintf("new client has been connected to server, ip: %s (%p,%p)\n", client->remoteIP().toString().c_str(), arg, client);
 
   // add to list
   telnetClients.push_back(client);
@@ -770,14 +979,20 @@ static void handleNewTelnetClient(void *arg, AsyncClient *client)
   client->onDisconnect(&handleTelnetDisconnect, NULL);
   client->onTimeout(&handleTelnetTimeOut, NULL);
 
-  client->write("Hello World from PYTES 48100R\n", 30);
+  client->write("\r\nHello World from PYTES 48100R\r\n");
 
   String uptime = "up ";
   uptime += uptime_formatter::getUptime();
-  uptime += "\n";
-  client->write(uptime.c_str(), uptime.length());
+  uptime += "\r\n";
+  client->write(uptime.c_str());
 
-  client->write("press '.' for help\n", 19);
+  client->write("press '.' for help\r\n");
+
+  if (telnetLoginNeeded) {
+      //debugPrintTelnetProtocolLine(String("S"),String("\xFF\xFE\x01"));
+      //client->write("\xFF\xFE\x01\r\n");
+      client->write("\nenter password: ");
+    }  
 }
 
 void telnet()
@@ -909,7 +1124,9 @@ void serialCommand(String cmd)
       debugPrintf("%c", cmd[i]);
     Serial2.write(cmd[i]);
     Serial2.flush();
-    delay(250);
+    #ifndef SIMULATION
+      delay(250);
+    #endif
   }
   if (commandLogging)
     debug("'\n");
@@ -1523,6 +1740,11 @@ void heardBeat()
         sendCommandAndParseTable(batCmd, "bat " + c, "bat", c);
         sendCommandAndParseForColon("pwr " + c, "pwr", c);
       }
+
+      sendCommandAndParseForColon("login debug", "", 0);
+      sendCommandAndParseForColon("pwrsys", "pwrsys", 0);
+      sendCommandAndParseForColon("logout", "", 0);
+
 #endif
       clearSerialBuffer();
       if (discoveryCounter > 0)
@@ -1533,9 +1755,10 @@ void heardBeat()
   }
 }
 
+
 /************************************************************
  *
- * systen setup
+ * system setup
  *
  ************************************************************/
 
@@ -1543,6 +1766,7 @@ void setup()
 {
   Serial.begin(115200);
   initSPIFFS();
+  readConfig();
   enableWiFi();
 
   if (!captivePortalMode) {

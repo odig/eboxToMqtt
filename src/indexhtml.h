@@ -28,6 +28,9 @@ String indexhtml = \
 "            <label for=\"mqttpassword\">MQTT Password</label>\n" \
 "            <input type=\"password\" id =\"mqttpassword\" name=\"mqttpassword\" value=\"%MQTTPASSWORD%\"><br>\n" \
 "            <br/>\n" \
+"            <label for=\"telnetpassword\">Telnet Password</label>\n" \
+"            <input type=\"password\" id =\"telnetpassword\" name=\"telnetpassword\" value=\"%TELNETPASSWORD%\"><br>\n" \
+"            <br/>\n" \
 "            <label for=\"rackcount\">E-BOX Racks</label>\n" \
 "            <input type=\"number\" id =\"rackcount\" name=\"rackcount\" value=\"%RACKCOUNT%\"><br>\n" \
 "            <br/>            \n" \
