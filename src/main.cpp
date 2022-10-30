@@ -1776,8 +1776,6 @@ void setup()
 
     mqttClient.setBufferSize(1024);
 
-    enableWiFi();
-
     // open telnet port
     AsyncServer *telnetServer = new AsyncServer(23); // start listening on tcp port 23
     telnetServer->onClient(&handleNewTelnetClient, telnetServer);
