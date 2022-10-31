@@ -1741,9 +1741,9 @@ void heardBeat()
         sendCommandAndParseForColon("pwr " + c, "pwr", c);
       }
 
-      sendCommandAndParseForColon("login debug", "", 0);
-      sendCommandAndParseForColon("pwrsys", "pwrsys", 0);
-      sendCommandAndParseForColon("logout", "", 0);
+      sendCommandAndParseForColon("login debug", "", "0");
+      sendCommandAndParseForColon("pwrsys", "pwrsys", "0");
+      sendCommandAndParseForColon("logout", "", "0");
 
 #endif
       clearSerialBuffer();
