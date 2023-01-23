@@ -1,16 +1,16 @@
 # PYTES E-BOX 48100R to MQTT 
 
-This application runs on an ESP32 with an RS232 level shifter attached to get battery details from an E-Box and provide them as MQTTT topics.
+This application runs on an ESP32 with an RS232 level shifter attached to get battery details from an E-Box and provide them as MQTT topics.
 
-Ther are also Homeassitant MQTT discovery topics implemented. So Devices show up in Homeassistant automatically.
+There are also Homeassitant MQTT discovery topics implemented. So devices show up in Homeassistant automatically.
 
 ## Disclaimer
 
-This is an hobby project.
+This is a hobby project.
 
 Everbody who want's to help is welcome.
 
-You need to know ESP32 PlatformIO and what an level shifter is to be successfull!
+You need to know ESP32 PlatformIO and what a level shifter is to be successfull!
 
 You need to know MQTT and Homeassistant!
 
@@ -18,7 +18,7 @@ If you are unfamiliar with the stuff you will get frustrated.
 
 ## Why?
 
-I want to see Cell voltages.
+I want to see cell voltages.
 
 ## Focus of this Project
 
@@ -31,7 +31,7 @@ Serial 2 is used on ESP 32
     - Pin: 16 RXD2
     - Pin: 17 TXD2
 
-It has to be connected via 3.3V to RS232C level shifter to Console port on E-BOX:
+It has to be connected via 3.3V to RS232C level shifter to console port on E-BOX:
 
     - RJ45 Pin: 3 TXD
     - RJ45 Pin: 4 GND
@@ -44,7 +44,7 @@ like so:
     - ESP32 PIN:     GND ------ level shifter ------ RJ45-Cable-Connector Pin: 4 GND
     - ESP32 PIN:    3.3V ------ level shifter
 
-If it's not workin just swap RXD and TXD on one side.
+If it's not working just swap RXD and TXD on one side.
 My level shifter swaps RXD and TXT by itself. This ended in brain fuck.
 
 Here some Pictures:
