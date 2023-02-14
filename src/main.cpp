@@ -59,7 +59,7 @@ IPAddress localGateway;
 
 // Timer variables
 unsigned long previousMillis = 0;
-const long interval = 10000; // interval to wait for Wi-Fi connection (milliseconds)
+const long interval = 1000*60*5; // interval to wait for Wi-Fi connection (milliseconds)
 
 #ifdef SIMULATION
 #define MQTT_CLIENT_ID "pytes2"
@@ -75,8 +75,6 @@ const long interval = 10000; // interval to wait for Wi-Fi connection (milliseco
  *
  ************************************************************/
 
-IPAddress mqttServer(172, 16, 17, 42);
-
 #define RXD2 16
 #define TXD2 17
 
@@ -86,7 +84,7 @@ IPAddress mqttServer(172, 16, 17, 42);
  *
  ************************************************************/
 
-#define HEARDBEAT_TIMER 30000
+#define HEARDBEAT_TIMER 60000 * 5
 #define MQTT_RETRY 500
 
 typedef enum
@@ -129,12 +127,10 @@ const TABLE_COLUMN_DEFINITION batCmd[] = {
  ************************************************************/
 
 WiFiClient WifiClient;
+PubSubClient *mqttClient = new PubSubClient();
 AsyncWebServer httpServer(80);
 DNSServer dnsServer;
 WiFiServer wifiServer;
-PubSubClient mqttClient(mqttServer, 1883, WifiClient);
-
-
 
 /************************************************************
  *
@@ -339,7 +335,6 @@ void readConfig()
   Serial.printf("ssid          : '%s'\n", ssid.c_str());
   Serial.printf("password      : '%s'\n", password.c_str());
   Serial.printf("mqttUser      : '%s'\n", mqttUser.c_str());
-  Serial.printf("mqttIp        : '%s'\n", mqttIp.c_str());
   Serial.printf("mqttPassword  : '%s'\n", mqttPassword.c_str());
   Serial.printf("telnetPassword: '%s'\n", telnetPassword.c_str());
   Serial.printf("rackCount     : '%s'\n", rackCount.c_str());
@@ -727,7 +722,7 @@ void enableWiFi()
     Serial.println("Setting AP (Access Point)");
     WiFi.softAP("PYTES-E-BOX-48100-R", NULL);
 
-    // keep maybe 8.8.4.4 is needed for arduino devices
+    //// keep maybe 8.8.4.4 is needed for arduino devices
     //WiFi.softAP("PYTES-E-BOX-48100-R");
     //IPAddress accessPointIpAddress = IPAddress(192,168,4,1);
     //WiFi.softAPConfig(accessPointIpAddress, accessPointIpAddress, IPAddress(255, 255, 255, 0));
@@ -759,22 +754,22 @@ void enableWiFi()
 void reconnect()
 {
   // Loop until we're reconnected
-  while (!mqttClient.connected())
+  while (!mqttClient->connected())
   {
     debugLn("Attempting MQTT connection...");
     // Attempt to connect
-    if (mqttClient.connect(MQTT_CLIENT_ID, "iot", "iotiot"))
+    if (mqttClient->connect(MQTT_CLIENT_ID, mqttUser.c_str(), mqttPassword.c_str()))
     {
       debugLn("MQTT connected");
       // Once connected, publish an announcement...
-      mqttClient.publish(MQTT_CLIENT_ID "/heartBeat", "beat");
+      mqttClient->publish(MQTT_CLIENT_ID "/heartBeat", "beat");
       // ... and resubscribe
-      mqttClient.subscribe(MQTT_CLIENT_ID "/reset");
+      mqttClient->subscribe(MQTT_CLIENT_ID "/reset");
       // Can subscribe to Out relay Aux Here
     }
     else
     {
-      debugPrintf("failed, rc=%d try again in 5 seconds\n", mqttClient.state());
+      debugPrintf("failed, rc=%d try again in 5 seconds\n", mqttClient->state());
       // Wait 5 seconds before retrying
       delay(5000);
     }
@@ -1284,7 +1279,7 @@ void sendCommandAndParseForColon(String cmd, String subTopic1, String subTopic2)
         debugPrintf("mqtt : '%s' = '%s'\n", topic.c_str(), jsonValue.c_str());
 
       // send to mqtt
-      mqttClient.publish(topic.c_str(), jsonValue.c_str(), true);
+      mqttClient->publish(topic.c_str(), jsonValue.c_str(), true);
 
       if (discoveryCounter > 0)
       {
@@ -1409,7 +1404,7 @@ void sendCommandAndParseForColon(String cmd, String subTopic1, String subTopic2)
           debugPrintf("mqttd: '%s' = '%s'\n", autodiscoverTopic.c_str(), discoverJson.c_str());
 
         // send to mqtt
-        mqttClient.publish(autodiscoverTopic.c_str(), discoverJson.c_str(), true);
+        mqttClient->publish(autodiscoverTopic.c_str(), discoverJson.c_str(), true);
       }
     }
   }
@@ -1559,7 +1554,7 @@ void sendCommandAndParseTable(const TABLE_COLUMN_DEFINITION valueDefinition[], S
             debugPrintf("mqtt : '%s' = '%s'\n", topic.c_str(), jsonValue.c_str());
 
           // send to mqtt
-          mqttClient.publish(topic.c_str(), jsonValue.c_str(), true);
+          mqttClient->publish(topic.c_str(), jsonValue.c_str(), true);
 
           if (discoveryCounter > 0)
           {
@@ -1692,7 +1687,7 @@ void sendCommandAndParseTable(const TABLE_COLUMN_DEFINITION valueDefinition[], S
             }
 
             // send to mqtt
-            mqttClient.publish(autodiscoverTopic.c_str(), discoverJson.c_str(), true);
+            mqttClient->publish(autodiscoverTopic.c_str(), discoverJson.c_str(), true);
           }
         }
         // next Column
@@ -1719,7 +1714,7 @@ void heardBeat()
   {
     time_passed = 0;
     heartBeatValue ^= 1;
-    mqttClient.publish(MQTT_CLIENT_ID "/heartBeat", heartBeatValue == 1 ? "1" : "0");
+    mqttClient->publish(MQTT_CLIENT_ID "/heartBeat", heartBeatValue == 1 ? "1" : "0");
     beat_time = millis();
 
     // send to MQTT
@@ -1774,7 +1769,10 @@ void setup()
     Serial2.setTxBufferSize(4096);
     Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
 
-    mqttClient.setBufferSize(1024);
+    debugPrintf("connecting to MQTT: '%s'\n", mqttIp.c_str());
+    mqttClient->setServer(mqttIp.c_str(), 1883);
+    mqttClient->setClient(WifiClient);
+    mqttClient->setBufferSize(1024);
 
     // open telnet port
     AsyncServer *telnetServer = new AsyncServer(23); // start listening on tcp port 23
@@ -1799,7 +1797,7 @@ void loop()
     ArduinoOTA.handle();
 
     // do mqtt
-    mqttClient.loop();
+    mqttClient->loop();
     reconnect();
 
     // heart beat
@@ -1808,7 +1806,4 @@ void loop()
     // provide intercative telnet server
     telnet();
   }
-
-
-
 }
